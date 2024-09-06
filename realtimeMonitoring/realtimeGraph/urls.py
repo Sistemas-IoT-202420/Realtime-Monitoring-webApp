@@ -8,6 +8,7 @@ urlpatterns = [
     path('historical/', HistoricalView.as_view(), name='historical'),
     path('rema/', RemaView.as_view(), name='rema'),
     path('rema/<str:measure>', RemaView.as_view(), name='rema'),
+    path('equipo8-2', team82, name='team82'),
     path("mapJson/", get_map_json, name="mapJson"),
     path("mapJson/<str:measure>", get_map_json, name="mapJson"),
     path('login/', LoginView.as_view(), name='login'),

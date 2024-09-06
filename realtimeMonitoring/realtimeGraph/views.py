@@ -9,37 +9,55 @@ from typing import Dict
 import requests
 import uuid
 import tempfile
-
+from django.core.serializers import serialize
 from django.template.defaulttags import register
 from django.contrib.auth import login, logout
 from realtimeGraph.forms import LoginForm
 from django.http import JsonResponse
-from django.http.response import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseNotFound, HttpResponseRedirect, HttpResponseServerError
+from django.http.response import (
+    FileResponse,
+    Http404,
+    HttpResponse,
+    HttpResponseBadRequest,
+    HttpResponseNotFound,
+    HttpResponseRedirect,
+    HttpResponseServerError,
+)
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView
 from django.shortcuts import render
 from random import randint
-from .models import City, Country, Data, Location, Measurement, Role, State, Station, User
+from .models import (
+    City,
+    Country,
+    Data,
+    Location,
+    Measurement,
+    Role,
+    State,
+    Station,
+    User,
+)
 from realtimeMonitoring import settings
 import dateutil.relativedelta
 from django.db.models import Avg, Max, Min, Sum
 
 
 class DashboardView(TemplateView):
-    template_name = 'index.html'
+    template_name = "index.html"
 
-    '''
+    """
     Get de Index. Si el usuario no está logueado se redirige a la página de login.
     Envía la página de template de Index con los datos de contexto procesados en get_context_data.
-    '''
+    """
 
     def get(self, request, **kwargs):
         if request.user == None or not request.user.is_authenticated:
             return HttpResponseRedirect("/login/")
-        return render(request, 'index.html', self.get_context_data(**kwargs))
+        return render(request, "index.html", self.get_context_data(**kwargs))
 
-    '''
+    """
     Se procesan los datos para cargar el contexto del template.
     El template espera un contexto de este tipo:
     {
@@ -64,7 +82,7 @@ class DashboardView(TemplateView):
         "selectedCountry": Country,
         "selectedLocation": Location
     }
-    '''
+    """
 
     def get_context_data(self, **kwargs):
         super().get_context_data(**kwargs)
@@ -72,11 +90,16 @@ class DashboardView(TemplateView):
         print("CONTEXT: getting context data")
         try:
             userParam = self.request.user.username
-            cityParam = self.request.GET.get('city', None)
-            stateParam = self.request.GET.get('state', None)
-            countryParam = self.request.GET.get('country', None)
-            print("CONTEXT: getting user, city, state, country: ",
-                  userParam, cityParam, stateParam, countryParam)
+            cityParam = self.request.GET.get("city", None)
+            stateParam = self.request.GET.get("state", None)
+            countryParam = self.request.GET.get("country", None)
+            print(
+                "CONTEXT: getting user, city, state, country: ",
+                userParam,
+                cityParam,
+                stateParam,
+                countryParam,
+            )
             if not cityParam and not stateParam and not countryParam:
                 user = User.objects.get(login=userParam)
                 print("CONTEXT: getting user db: ", user)
@@ -92,14 +115,22 @@ class DashboardView(TemplateView):
                     return context
             print("CONTEXT: getting last week data and measurements")
             context["data"], context["measurements"] = self.get_last_week_data(
-                userParam, cityParam, stateParam, countryParam)
-            print("CONTEXT: got last week data, now getting city, state, country: ",
-                  cityParam, stateParam, countryParam)
+                userParam, cityParam, stateParam, countryParam
+            )
+            print(
+                "CONTEXT: got last week data, now getting city, state, country: ",
+                cityParam,
+                stateParam,
+                countryParam,
+            )
             context["selectedCity"] = City.objects.get(name=cityParam)
             context["selectedState"] = State.objects.get(name=stateParam)
             context["selectedCountry"] = Country.objects.get(name=countryParam)
             context["selectedLocation"] = Location.objects.get(
-                city=context["selectedCity"], state=context["selectedState"], country=context["selectedCountry"])
+                city=context["selectedCity"],
+                state=context["selectedState"],
+                country=context["selectedCountry"],
+            )
         except Exception as e:
             print("Error get_context_data. User: " + userParam, e)
         return context
@@ -115,9 +146,7 @@ class DashboardView(TemplateView):
     def get_last_week_data(self, user, city, state, country):
         result = {}
         start = datetime.now()
-        start = start - \
-            dateutil.relativedelta.relativedelta(
-                days=1)
+        start = start - dateutil.relativedelta.relativedelta(days=1)
         try:
             userO = User.objects.get(login=user)
             location = None
@@ -126,48 +155,48 @@ class DashboardView(TemplateView):
                 stateO = State.objects.get(name=state)
                 countryO = Country.objects.get(name=country)
                 location = Location.objects.get(
-                    city=cityO, state=stateO, country=countryO)
+                    city=cityO, state=stateO, country=countryO
+                )
             except:
                 print("Specified location does not exist")
-            print("LAST_WEEK: Got user and lcoation:",
-                  user, city, state, country)
+            print("LAST_WEEK: Got user and lcoation:", user, city, state, country)
             if userO == None or location == None:
-                raise 'No existe el usuario o ubicación indicada'
+                raise "No existe el usuario o ubicación indicada"
             stationO = Station.objects.get(user=userO, location=location)
             print("LAST_WEEK: Got station:", user, location, stationO)
             if stationO == None:
-                raise 'No hay datos para esa ubicación'
+                raise "No hay datos para esa ubicación"
             measurementsO = self.get_measurements()
             print("LAST_WEEK: Measurements got: ", measurementsO)
             for measure in measurementsO:
                 print("LAST_WEEK: Filtering measure: ", measure)
                 # time__gte=start.date() Filtro para último día
                 raw_data = Data.objects.filter(
-                    station=stationO, time__gte=start, measurement=measure).order_by('-time')[:50]
+                    station=stationO, time__gte=start, measurement=measure
+                ).order_by("-time")[:50]
                 print("LAST_WEEK: Raw data: ", len(raw_data))
-                data = [[(d.toDict()['time'].timestamp() *
-                          1000) // 1, d.toDict()['value']] for d in raw_data]
+                data = [
+                    [(d.toDict()["time"].timestamp() * 1000) // 1, d.toDict()["value"]]
+                    for d in raw_data
+                ]
 
-                minVal = raw_data.aggregate(
-                    Min('value'))['value__min']
-                maxVal = raw_data.aggregate(
-                    Max('value'))['value__max']
-                avgVal = raw_data.aggregate(
-                    Avg('value'))['value__avg']
+                minVal = raw_data.aggregate(Min("value"))["value__min"]
+                maxVal = raw_data.aggregate(Max("value"))["value__max"]
+                avgVal = raw_data.aggregate(Avg("value"))["value__avg"]
                 result[measure.name] = {
-                    'min': minVal if minVal != None else 0,
-                    'max': maxVal if maxVal != None else 0,
-                    'avg': round(avgVal if avgVal != None else 0, 2),
-                    'data': data
+                    "min": minVal if minVal != None else 0,
+                    "max": maxVal if maxVal != None else 0,
+                    "avg": round(avgVal if avgVal != None else 0, 2),
+                    "data": data,
                 }
         except Exception as error:
-            print('Error en consulta de datos:', error)
+            print("Error en consulta de datos:", error)
 
         return result, measurementsO
 
-    '''
+    """
     Post en /index. Se usa para actualizar las gráficas de medidas en tiempo real del usuario.
-    '''
+    """
 
     def post(self, request, *args, **kwargs):
         data = {}
@@ -175,25 +204,26 @@ class DashboardView(TemplateView):
             return HttpResponseRedirect("/login/")
         try:
             body = json.loads(request.body.decode("utf-8"))
-            action = body['action']
-            print('action:', action)
+            action = body["action"]
+            print("action:", action)
             userParam = self.request.user.username
-            if action == 'get_data':
-                cityName = body['city']
-                stateName = body['state']
-                countryName = body['country']
-                data['result'] = self.get_last_week_data(
-                    userParam, cityName, stateName, countryName)
+            if action == "get_data":
+                cityName = body["city"]
+                stateName = body["state"]
+                countryName = body["country"]
+                data["result"] = self.get_last_week_data(
+                    userParam, cityName, stateName, countryName
+                )
             else:
-                data['error'] = 'Ha ocurrido un error'
+                data["error"] = "Ha ocurrido un error"
         except Exception as e:
-            data['error'] = str(e)
+            data["error"] = str(e)
         return JsonResponse(data)
 
 
-'''
+"""
 Intenta traer el rol con nombre {name}. Si no existe lo crea y lo retorna.
-'''
+"""
 
 
 def get_or_create_role(name):
@@ -202,12 +232,12 @@ def get_or_create_role(name):
     except Role.DoesNotExist:
         role = Role(name=name)
         role.save()
-    return(role)
+    return role
 
 
-'''
+"""
 Intenta traer el usuario con login {login}. Si no existe lo crea y lo retorna.
-'''
+"""
 
 
 def get_or_create_user(login):
@@ -215,15 +245,18 @@ def get_or_create_user(login):
         user = User.objects.get(login=login)
     except User.DoesNotExist:
         role = Role.objects.get(name="USER")
-        user = User(login=login, role=role, )
+        user = User(
+            login=login,
+            role=role,
+        )
         user.save()
-    return(user)
+    return user
 
 
-'''
+"""
 Intenta traer la locación con nombre de ciudad, estado y país {city, state, country}.
 Si no existe, calcula las coordenadas de esa ubicación, lo crea y lo retorna.
-'''
+"""
 
 
 def get_or_create_location(city, state, country):
@@ -231,21 +264,22 @@ def get_or_create_location(city, state, country):
     stateO, created = State.objects.get_or_create(name=state)
     countryO, created = Country.objects.get_or_create(name=country)
     loc, created = Location.objects.get_or_create(
-        city=cityO, state=stateO, country=countryO)
+        city=cityO, state=stateO, country=countryO
+    )
     if loc.lat == None:
         # TODO Geolocate including state and country #, {state}, {country}')
-        lat, lng = getCityCoordinates(f'{city}, {state}, {country}')
+        lat, lng = getCityCoordinates(f"{city}, {state}, {country}")
         loc.lat = lat
         loc.lng = lng
         loc.save()
 
-    return(loc)
+    return loc
 
 
-'''
+"""
 Intenta traer la locación con sólo nombre de ciudad {city}.
 Si no existe, calcula las coordenadas de esa ubicación, lo crea y lo retorna.
-'''
+"""
 
 
 def get_or_create_location_only_city(city):
@@ -253,53 +287,52 @@ def get_or_create_location_only_city(city):
     stateO, created = State.objects.get_or_create(name="")
     countryO, created = Country.objects.get_or_create(name="Colombia")
     loc, created = Location.objects.get_or_create(
-        city=cityO, state=stateO, country=countryO)
+        city=cityO, state=stateO, country=countryO
+    )
     if loc.lat == None:
         # TODO Geolocate including state and country #, {state}, {country}')
-        lat, lng = getCityCoordinates(f'{city}, Colombia')
+        lat, lng = getCityCoordinates(f"{city}, Colombia")
         loc.lat = lat
         loc.lng = lng
         loc.save()
 
-    return(loc)
+    return loc
 
 
-'''
+"""
 Intenta traer la estación con usuario y locación {user, location}. Si no existe la crea y la retorna.
-'''
+"""
 
 
 def get_or_create_station(user, location):
-    station, created = Station.objects.get_or_create(
-        user=user, location=location)
-    return(station)
+    station, created = Station.objects.get_or_create(user=user, location=location)
+    return station
 
 
-'''
+"""
 Traer la estación con usuario y locación {user, location}.
-'''
+"""
 
 
 def get_station(user, location):
     station = Station.objects.get(user=user, location=location)
-    return(station)
+    return station
 
 
-'''
+"""
 Intenta traer la variable con nombre y unidad {name, unit}. Si no existe la crea y la retorna.
-'''
+"""
 
 
 def get_or_create_measurement(name, unit):
-    measurement, created = Measurement.objects.get_or_create(
-        name=name, unit=unit)
-    return(measurement)
+    measurement, created = Measurement.objects.get_or_create(name=name, unit=unit)
+    return measurement
 
 
-'''
+"""
 Crea una nueva medición con valor, estación y variable {value, station, measure}
 Actualiza también el tiempo de última actividad de la estación.
-'''
+"""
 
 
 def create_data(value: float, station: Station, measure: Measurement):
@@ -307,38 +340,41 @@ def create_data(value: float, station: Station, measure: Measurement):
     data.save()
     station.last_activity = data.time
     station.save()
-    return(data)
+    return data
 
 
-'''
+"""
 Crea una nueva medición con valor, estación y variable {value, station, measure}
 Adicional a la función anterior, esta crea la medición con una fecha específica.
 Se usa para la importación de datos.
-'''
+"""
 
 
-def create_data_with_date(value: float, station: Station, measure: Measurement, date: datetime):
+def create_data_with_date(
+    value: float, station: Station, measure: Measurement, date: datetime
+):
     data = Data(value=value, station=station, measurement=measure, time=date)
     data.save()
-    return(data)
+    return data
 
 
-'''
+"""
 Trae la última medición de una estación y variable en específico {station, measurement}.
-'''
+"""
 
 
 def get_last_measure(station, measurement):
-    last_measure = Data.objects.filter(
-        station=station, measurement=measurement).latest('time')
+    last_measure = Data.objects.filter(station=station, measurement=measurement).latest(
+        "time"
+    )
     print(last_measure.time)
     print(datetime.now())
-    return(last_measure.value)
+    return last_measure.value
 
 
 class LoginView(TemplateView):
-    template_name = 'login.html'
-    http_method_names = ['get', 'post']
+    template_name = "login.html"
+    http_method_names = ["get", "post"]
 
     def post(self, request):
         form = LoginForm(request.POST or None)
@@ -349,28 +385,36 @@ class LoginView(TemplateView):
                     login(request, user)
                     return HttpResponseRedirect("/")
             except Exception as e:
-                print('Login error', e)
-        errors = ''
+                print("Login error", e)
+        errors = ""
         for e in form.errors.values():
             errors += str(e[0])
 
-        return render(request, 'login.html', {'errors': errors, 'username': form.cleaned_data['username'], 'password': form.cleaned_data['password'], })
+        return render(
+            request,
+            "login.html",
+            {
+                "errors": errors,
+                "username": form.cleaned_data["username"],
+                "password": form.cleaned_data["password"],
+            },
+        )
 
 
 class LogoutView(TemplateView):
     def get(self, request):
         logout(request)
-        return HttpResponseRedirect('/')
+        return HttpResponseRedirect("/")
 
 
 class HistoricalView(TemplateView):
-    template_name = 'historical.html'
+    template_name = "historical.html"
 
-    '''
+    """
     Get de /historical. Si el usuario no está logueado se redirige a la página de login.
     Envía la página de template de historical.
     El archivo se descarga directamente del csv actualizado. No hay procesamiento ni filtros.
-    '''
+    """
 
     def get(self, request, **kwargs):
         if request.user == None or not request.user.is_authenticated:
@@ -379,20 +423,20 @@ class HistoricalView(TemplateView):
 
 
 class RemaView(TemplateView):
-    template_name = 'rema.html'
+    template_name = "rema.html"
 
-    '''
+    """
     Get de /rema. Si el usuario no está logueado se redirige a la página de login.
     Envía la página de template de historical.
     El archivo se descarga directamente del csv actualizado. No hay procesamiento ni filtros.
-    '''
+    """
 
     def get(self, request, **kwargs):
         # if request.user == None or not request.user.is_authenticated:
         #     return HttpResponseRedirect("/login/")
         return render(request, self.template_name, self.get_context_data(**kwargs))
 
-    '''
+    """
     Se procesan los datos para cargar el contexto del template.
     El template espera un contexto de este tipo:
     {
@@ -416,12 +460,12 @@ class RemaView(TemplateView):
         "start": startTime,
         "end": endTime
     }
-    '''
+    """
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        measureParam = self.kwargs.get('measure', None)
+        measureParam = self.kwargs.get("measure", None)
         selectedMeasure = None
         measurements = Measurement.objects.all()
 
@@ -433,19 +477,17 @@ class RemaView(TemplateView):
         locations = Location.objects.all()
         try:
             start = datetime.fromtimestamp(
-                float(self.request.GET.get('from', None))/1000)
+                float(self.request.GET.get("from", None)) / 1000
+            )
         except:
             start = None
         try:
-            end = datetime.fromtimestamp(
-                float(self.request.GET.get('to', None))/1000)
+            end = datetime.fromtimestamp(float(self.request.GET.get("to", None)) / 1000)
         except:
             end = None
         if start == None and end == None:
             start = datetime.now()
-            start = start - \
-                dateutil.relativedelta.relativedelta(
-                    weeks=1)
+            start = start - dateutil.relativedelta.relativedelta(weeks=1)
             end = datetime.now()
             end += dateutil.relativedelta.relativedelta(days=1)
         elif end == None:
@@ -458,34 +500,37 @@ class RemaView(TemplateView):
         for location in locations:
             stations = Station.objects.filter(location=location)
             locationData = Data.objects.filter(
-                station__in=stations, measurement__name=selectedMeasure.name,  time__gte=start.date(), time__lte=end.date())
+                station__in=stations,
+                measurement__name=selectedMeasure.name,
+                time__gte=start.date(),
+                time__lte=end.date(),
+            )
             if locationData.count() <= 0:
                 continue
-            minVal = locationData.aggregate(
-                Min('value'))['value__min']
-            maxVal = locationData.aggregate(
-                Max('value'))['value__max']
-            avgVal = locationData.aggregate(
-                Avg('value'))['value__avg']
-            data.append({
-                'name': f'{location.city.name}, {location.state.name}, {location.country.name}',
-                'lat': location.lat,
-                'lng': location.lng,
-                'population': stations.count(),
-                'min': minVal if minVal != None else 0,
-                'max': maxVal if maxVal != None else 0,
-                'avg': round(avgVal if avgVal != None else 0, 2),
-            })
+            minVal = locationData.aggregate(Min("value"))["value__min"]
+            maxVal = locationData.aggregate(Max("value"))["value__max"]
+            avgVal = locationData.aggregate(Avg("value"))["value__avg"]
+            data.append(
+                {
+                    "name": f"{location.city.name}, {location.state.name}, {location.country.name}",
+                    "lat": location.lat,
+                    "lng": location.lng,
+                    "population": stations.count(),
+                    "min": minVal if minVal != None else 0,
+                    "max": maxVal if maxVal != None else 0,
+                    "avg": round(avgVal if avgVal != None else 0, 2),
+                }
+            )
 
         startFormatted = start.strftime("%d/%m/%Y") if start != None else " "
         endFormatted = end.strftime("%d/%m/%Y") if end != None else " "
 
-        context['measurements'] = measurements
-        context['selectedMeasure'] = selectedMeasure
-        context['locations'] = locations
-        context['start'] = startFormatted
-        context['end'] = endFormatted
-        context['data'] = data
+        context["measurements"] = measurements
+        context["selectedMeasure"] = selectedMeasure
+        context["locations"] = locations
+        context["start"] = startFormatted
+        context["end"] = endFormatted
+        context["data"] = data
 
         return context
 
@@ -517,6 +562,91 @@ La respuesta tiene esta estructura:
 """
 
 
+def team82(request, **kwargs):
+    data = {}
+    locs = []
+    measurements = Measurement.objects.all()
+    locations = Location.objects.all()
+    try:
+        start = datetime.fromtimestamp(float(request.GET.get("from", None)) / 1000)
+    except:
+        start = None
+    try:
+        end = datetime.fromtimestamp(float(request.GET.get("to", None)) / 1000)
+    except:
+        end = None
+    if start == None and end == None:
+        start = datetime.now()
+        start = start - dateutil.relativedelta.relativedelta(weeks=1)
+        end = datetime.now()
+        end += dateutil.relativedelta.relativedelta(days=1)
+    elif end == None:
+        end = datetime.now()
+    elif start == None:
+        start = datetime.fromtimestamp(0)
+
+    for location in locations:
+        loc = {
+            "name": f"{location.city.name}, {location.state.name}, {location.country.name}",
+            "lat": location.lat,
+            "lng": location.lng,
+        }
+        stations = Station.objects.filter(location=location)
+        stats = []
+        for station in stations:
+            stat = {"active": station.active}
+            meass = []
+            for measurement in measurements:
+                stationData = Data.objects.filter(
+                    station=station,
+                    time__gte=start.date(),
+                    time__lte=end.date(),
+                    measurement__name=measurement.name,
+                )
+                if stationData.count() <= 0:
+                    continue
+                max_record = (
+                    stationData.annotate(max_value=Max("value"))
+                    .order_by("-value", "time")
+                    .first()
+                )
+                min_record = (
+                    stationData.annotate(max_value=Min("value"))
+                    .order_by("value", "time")
+                    .first()
+                )
+                avgVal = stationData.aggregate(Avg("value"))["value__avg"]
+                meass.append(
+                    {
+                        "name": measurement.name,
+                        "unit": measurement.unit,
+                        "max": {
+                            "value": max_record.value if max_record else None,
+                            "time": max_record.time if max_record else None
+                        },
+                        "min": {
+                            "value": min_record.value if min_record else None,
+                            "time": min_record.time if min_record else None
+                        },
+                        "avg": round(avgVal if avgVal != None else 0, 2),
+                    }
+                )
+            stat["measurements"] = meass
+            stats.append(stat)
+
+        loc["stations"] = stats
+        locs.append(loc)
+
+    startFormatted = start.strftime("%d/%m/%Y") if start != None else " "
+    endFormatted = end.strftime("%d/%m/%Y") if end != None else " "
+
+    data["start"] = startFormatted
+    data["end"] = endFormatted
+    data["locations"] = locs
+
+    return JsonResponse(data)
+
+
 def get_map_json(request, **kwargs):
     data_result = {}
 
@@ -531,14 +661,11 @@ def get_map_json(request, **kwargs):
 
     locations = Location.objects.all()
     try:
-        start = datetime.fromtimestamp(
-            float(request.GET.get("from", None)) / 1000
-        )
+        start = datetime.fromtimestamp(float(request.GET.get("from", None)) / 1000)
     except:
         start = None
     try:
-        end = datetime.fromtimestamp(
-            float(request.GET.get("to", None)) / 1000)
+        end = datetime.fromtimestamp(float(request.GET.get("to", None)) / 1000)
     except:
         end = None
     if start == None and end == None:
@@ -556,24 +683,27 @@ def get_map_json(request, **kwargs):
     for location in locations:
         stations = Station.objects.filter(location=location)
         locationData = Data.objects.filter(
-            station__in=stations, measurement__name=selectedMeasure.name,  time__gte=start.date(), time__lte=end.date())
+            station__in=stations,
+            measurement__name=selectedMeasure.name,
+            time__gte=start.date(),
+            time__lte=end.date(),
+        )
         if locationData.count() <= 0:
             continue
-        minVal = locationData.aggregate(
-            Min('value'))['value__min']
-        maxVal = locationData.aggregate(
-            Max('value'))['value__max']
-        avgVal = locationData.aggregate(
-            Avg('value'))['value__avg']
-        data.append({
-            'name': f'{location.city.name}, {location.state.name}, {location.country.name}',
-            'lat': location.lat,
-            'lng': location.lng,
-            'population': stations.count(),
-            'min': minVal if minVal != None else 0,
-            'max': maxVal if maxVal != None else 0,
-            'avg': round(avgVal if avgVal != None else 0, 2),
-        })
+        minVal = locationData.aggregate(Min("value"))["value__min"]
+        maxVal = locationData.aggregate(Max("value"))["value__max"]
+        avgVal = locationData.aggregate(Avg("value"))["value__avg"]
+        data.append(
+            {
+                "name": f"{location.city.name}, {location.state.name}, {location.country.name}",
+                "lat": location.lat,
+                "lng": location.lng,
+                "population": stations.count(),
+                "min": minVal if minVal != None else 0,
+                "max": maxVal if maxVal != None else 0,
+                "avg": round(avgVal if avgVal != None else 0, 2),
+            }
+        )
 
     startFormatted = start.strftime("%d/%m/%Y") if start != None else " "
     endFormatted = end.strftime("%d/%m/%Y") if end != None else " "
@@ -589,22 +719,28 @@ def get_map_json(request, **kwargs):
 def download_csv_data(request):
     print("Getting time for csv req")
     startT = time.time()
-    print('####### VIEW #######')
-    print('Processing CSV')
+    print("####### VIEW #######")
+    print("Processing CSV")
     start, end = get_daterange(request)
     print("Start, end", start, end)
-    data = Data.objects.filter(
-        time__gte=start.date(), time__lte=end.date())
+    data = Data.objects.filter(time__gte=start.date(), time__lte=end.date())
     print("Data ref got")
     tmpFile = tempfile.NamedTemporaryFile(delete=False)
     print("Creating file")
     filename = tmpFile.name
 
-    with open(filename, 'w', encoding='utf-8') as data_file:
+    with open(filename, "w", encoding="utf-8") as data_file:
         print("Filename:", filename)
-        headers = ['Usuario', 'Ciudad', 'Estado',
-                   'País', 'Fecha', 'Variable', 'Medición']
-        data_file.write(','.join(headers) + '\n')
+        headers = [
+            "Usuario",
+            "Ciudad",
+            "Estado",
+            "País",
+            "Fecha",
+            "Variable",
+            "Medición",
+        ]
+        data_file.write(",".join(headers) + "\n")
         print("Head written")
         print("Len of data:", len(data))
         try:
@@ -615,31 +751,27 @@ def download_csv_data(request):
     print("##### VIEW ######")
     print("Processed. Time: ", endT - startT)
 
-    return FileResponse(open(filename, 'rb'), filename='datos-historicos-iot.csv')
+    return FileResponse(open(filename, "rb"), filename="datos-historicos-iot.csv")
 
 
-'''
+"""
 Extrae los rangos de fecha de la url.
 Ej: /index?from=1600000&to=1600000 => start=datetime.fromtimestamp(1600000), end=datetime.fromtimestamp(1600000)
-'''
+"""
 
 
 def get_daterange(request):
     try:
-        start = datetime.fromtimestamp(
-            float(request.GET.get('from', None))/1000)
+        start = datetime.fromtimestamp(float(request.GET.get("from", None)) / 1000)
     except:
         start = None
     try:
-        end = datetime.fromtimestamp(
-            float(request.GET.get('to', None))/1000)
+        end = datetime.fromtimestamp(float(request.GET.get("to", None)) / 1000)
     except:
         end = None
     if start == None and end == None:
         start = datetime.now()
-        start = start - \
-            dateutil.relativedelta.relativedelta(
-                weeks=1)
+        start = start - dateutil.relativedelta.relativedelta(weeks=1)
         end = datetime.now()
         end += dateutil.relativedelta.relativedelta(days=1)
     elif end == None:
@@ -650,26 +782,26 @@ def get_daterange(request):
     return start, end
 
 
-'''
+"""
 Filtro para formatear datos en el template de index
-'''
+"""
 
 
-@ register.filter
+@register.filter
 def get_statistic(dictionary, key):
     if type(dictionary) == str:
         dictionary = json.loads(dictionary)
     if key is None:
         return None
-    keys = [k.strip() for k in key.split(',')]
+    keys = [k.strip() for k in key.split(",")]
     return dictionary.get(keys[0]).get(keys[1])
 
 
-'''
+"""
 Filtro para formatear datos en los templates
-'''
+"""
 
 
-@ register.filter
+@register.filter
 def add_str(str1, str2):
     return str1 + str2
