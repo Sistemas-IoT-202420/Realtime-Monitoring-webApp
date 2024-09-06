@@ -6,6 +6,7 @@ import time
 import tempfile
 from realtimeMonitoring.utils import getCityCoordinates
 
+from django.core.serializers import serialize
 from django.template.defaulttags import register
 from django.contrib.auth import login, logout
 from realtimeGraph.forms import LoginForm
@@ -563,6 +564,92 @@ def get_map_json(request, **kwargs):
 
     return JsonResponse(data_result)
 
+def team82(request, **kwargs):
+    data = {}
+    locs = []
+    measurements = Measurement.objects.all()
+    locations = Location.objects.all()
+    try:
+        start = datetime.fromtimestamp(float(request.GET.get("from", None)) / 1000)
+    except:
+        start = None
+    try:
+        end = datetime.fromtimestamp(float(request.GET.get("to", None)) / 1000)
+    except:
+        end = None
+    if start == None and end == None:
+        start = datetime.now()
+        start = start - dateutil.relativedelta.relativedelta(weeks=1)
+        end = datetime.now()
+        end += dateutil.relativedelta.relativedelta(days=1)
+    elif end == None:
+        end = datetime.now()
+    elif start == None:
+        start = datetime.fromtimestamp(0)
+    
+    start_ts = int(start.timestamp() * 1000000)
+    end_ts = int(end.timestamp() * 1000000)
+
+    for location in locations:
+        loc = {
+            "name": f"{location.city.name}, {location.state.name}, {location.country.name}",
+            "lat": location.lat,
+            "lng": location.lng,
+        }
+        stations = Station.objects.filter(location=location)
+        stats = []
+        for station in stations:
+            stat = {"active": station.active}
+            meass = []
+            for measurement in measurements:
+                stationData = Data.objects.filter(
+                    station=station,
+                    time__gte=start_ts.date(),
+                    time__lte=end_ts.date(),
+                    measurement__name=measurement.name,
+                )
+                if stationData.count() <= 0:
+                    continue
+                max_record = (
+                    stationData.annotate(max_value=Max("max_value"))
+                    .order_by("-min_value", "time")
+                    .first()
+                )
+                min_record = (
+                    stationData.annotate(max_value=Min("min_value"))
+                    .order_by("min_value", "time")
+                    .first()
+                )
+                avgVal = stationData.aggregate(Avg("value"))["value__avg"]
+                meass.append(
+                    {
+                        "name": measurement.name,
+                        "unit": measurement.unit,
+                        "max": {
+                            "value": max_record.value if max_record else None,
+                            "time": max_record.time if max_record else None
+                        },
+                        "min": {
+                            "value": min_record.value if min_record else None,
+                            "time": min_record.time if min_record else None
+                        },
+                        "avg": round(avgVal if avgVal != None else 0, 2),
+                    }
+                )
+            stat["measurements"] = meass
+            stats.append(stat)
+
+        loc["stations"] = stats
+        locs.append(loc)
+
+    startFormatted = start.strftime("%d/%m/%Y") if start != None else " "
+    endFormatted = end.strftime("%d/%m/%Y") if end != None else " "
+
+    data["start"] = startFormatted
+    data["end"] = endFormatted
+    data["locations"] = locs
+
+    return JsonResponse(data)
 
 class RemaView(TemplateView):
     template_name = "rema.html"
