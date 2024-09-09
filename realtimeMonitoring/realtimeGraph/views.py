@@ -39,7 +39,7 @@ from .models import (
 )
 from realtimeMonitoring import settings
 import dateutil.relativedelta
-from django.db.models import Avg, Max, Min, Sum
+from django.db.models import Avg, Max, Min, Sum, Func
 
 
 class DashboardView(TemplateView):
@@ -157,8 +157,7 @@ class DashboardView(TemplateView):
                 )
             except:
                 print("Specified location does not exist")
-            print("LAST_WEEK: Got user and lcoation:",
-                  user, city, state, country)
+            print("LAST_WEEK: Got user and lcoation:", user, city, state, country)
             if userO == None or location == None:
                 raise "No existe el usuario o ubicación indicada"
             stationO = Station.objects.get(user=userO, location=location)
@@ -182,8 +181,7 @@ class DashboardView(TemplateView):
                     for i in range(len(values)):
                         data.append(
                             (
-                                ((reg.base_time.timestamp() +
-                                 times[i]) * 1000 // 1),
+                                ((reg.base_time.timestamp() + times[i]) * 1000 // 1),
                                 values[i],
                             )
                         )
@@ -316,8 +314,7 @@ Intenta traer la estación con usuario y locación {user, location}. Si no exist
 
 
 def get_or_create_station(user, location):
-    station, created = Station.objects.get_or_create(
-        user=user, location=location)
+    station, created = Station.objects.get_or_create(user=user, location=location)
     return station
 
 
@@ -337,8 +334,7 @@ Intenta traer la variable con nombre y unidad {name, unit}. Si no existe la crea
 
 
 def get_or_create_measurement(name, unit):
-    measurement, created = Measurement.objects.get_or_create(
-        name=name, unit=unit)
+    measurement, created = Measurement.objects.get_or_create(name=name, unit=unit)
     return measurement
 
 
@@ -354,15 +350,17 @@ def create_data(
     measure: Measurement,
     time: datetime = timezone.now(),
 ):
-    base_time = datetime(time.year, time.month, time.day,
-                         time.hour, tzinfo=time.tzinfo)
+    base_time = datetime(time.year, time.month, time.day, time.hour, tzinfo=time.tzinfo)
     ts = int(base_time.timestamp() * 1000000)
     secs = int(time.timestamp() % 3600)
 
     data, created = Data.objects.get_or_create(
-        base_time=base_time, station=station, measurement=measure, defaults={
+        base_time=base_time,
+        station=station,
+        measurement=measure,
+        defaults={
             "time": ts,
-        }
+        },
     )
 
     if created:
@@ -507,14 +505,11 @@ def get_map_json(request, **kwargs):
 
     locations = Location.objects.all()
     try:
-        start = datetime.fromtimestamp(
-            float(request.GET.get("from", None)) / 1000
-        )
+        start = datetime.fromtimestamp(float(request.GET.get("from", None)) / 1000)
     except:
         start = None
     try:
-        end = datetime.fromtimestamp(
-            float(request.GET.get("to", None)) / 1000)
+        end = datetime.fromtimestamp(float(request.GET.get("to", None)) / 1000)
     except:
         end = None
     if start == None and end == None:
@@ -535,7 +530,10 @@ def get_map_json(request, **kwargs):
     for location in locations:
         stations = Station.objects.filter(location=location)
         locationData = Data.objects.filter(
-            station__in=stations, measurement__name=selectedMeasure.name, time__gte=start_ts, time__lte=end_ts,
+            station__in=stations,
+            measurement__name=selectedMeasure.name,
+            time__gte=start_ts,
+            time__lte=end_ts,
         )
         if locationData.count() <= 0:
             continue
@@ -564,6 +562,17 @@ def get_map_json(request, **kwargs):
 
     return JsonResponse(data_result)
 
+
+class ArrayMax(Func):
+    function = "GREATEST"
+    template = "%(function)s(%(expressions)s)"
+
+
+class ArrayMin(Func):
+    function = "LEAST"
+    template = "%(function)s(%(expressions)s)"
+
+
 def team82(request, **kwargs):
     data = {}
     locs = []
@@ -586,7 +595,7 @@ def team82(request, **kwargs):
         end = datetime.now()
     elif start == None:
         start = datetime.fromtimestamp(0)
-    
+
     start_ts = int(start.timestamp() * 1000000)
     end_ts = int(end.timestamp() * 1000000)
 
@@ -604,38 +613,46 @@ def team82(request, **kwargs):
             for measurement in measurements:
                 stationData = Data.objects.filter(
                     station=station,
-                    time__gte=start_ts.date(),
-                    time__lte=end_ts.date(),
+                    time__gte=start_ts,
+                    time__lte=end_ts,
                     measurement__name=measurement.name,
                 )
                 if stationData.count() <= 0:
                     continue
-                max_record = (
-                    stationData.annotate(max_value=Max("max_value"))
-                    .order_by("-min_value", "time")
-                    .first()
+
+                stationData = stationData.annotate(
+                    max__value=ArrayMax("values"), min__value=ArrayMin("values")
                 )
-                min_record = (
-                    stationData.annotate(max_value=Min("min_value"))
-                    .order_by("min_value", "time")
-                    .first()
-                )
-                avgVal = stationData.aggregate(Avg("value"))["value__avg"]
+
+                max_record = stationData.order_by("-max__value").first()
+                min_record = stationData.order_by("min__value").first()
+
+                if max_record:
+                    max_value_index = max_record.values.index(max_record.max_value)
+                    max_time = max_record.time + max_record.times[max_value_index]
+
+                if min_record:
+                    min_value_index = min_record.values.index(min_record.min_value)
+                    min_time = min_record.time + min_record.times[min_value_index]
+
+                avgVal = stationData.aggregate(Avg("avg_value"))["avg_value__avg"]
+
                 meass.append(
                     {
                         "name": measurement.name,
                         "unit": measurement.unit,
                         "max": {
-                            "value": max_record.value if max_record else None,
-                            "time": max_record.time if max_record else None
+                            "value": max_record.max_value if max_record else None,
+                            "time": max_time if max_record else None,
                         },
                         "min": {
-                            "value": min_record.value if min_record else None,
-                            "time": min_record.time if min_record else None
+                            "value": min_record.min_value if min_record else None,
+                            "time": min_time if min_record else None,
                         },
-                        "avg": round(avgVal if avgVal != None else 0, 2),
+                        "avg": round(avgVal if avgVal is not None else 0, 2),
                     }
                 )
+
             stat["measurements"] = meass
             stats.append(stat)
 
@@ -650,6 +667,7 @@ def team82(request, **kwargs):
     data["locations"] = locs
 
     return JsonResponse(data)
+
 
 class RemaView(TemplateView):
     template_name = "rema.html"
@@ -711,8 +729,7 @@ class RemaView(TemplateView):
         except:
             start = None
         try:
-            end = datetime.fromtimestamp(
-                float(self.request.GET.get("to", None)) / 1000)
+            end = datetime.fromtimestamp(float(self.request.GET.get("to", None)) / 1000)
         except:
             end = None
         if start == None and end == None:
@@ -733,7 +750,10 @@ class RemaView(TemplateView):
         for location in locations:
             stations = Station.objects.filter(location=location)
             locationData = Data.objects.filter(
-                station__in=stations, measurement__name=selectedMeasure.name, time__gte=start_ts, time__lte=end_ts,
+                station__in=stations,
+                measurement__name=selectedMeasure.name,
+                time__gte=start_ts,
+                time__lte=end_ts,
             )
             if locationData.count() <= 0:
                 continue
@@ -813,8 +833,7 @@ Ej: /index?from=1600000&to=1600000 => start=datetime.fromtimestamp(1600000), end
 
 def get_daterange(request):
     try:
-        start = datetime.fromtimestamp(
-            float(request.GET.get("from", None)) / 1000)
+        start = datetime.fromtimestamp(float(request.GET.get("from", None)) / 1000)
     except:
         start = None
     try:
