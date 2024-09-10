@@ -562,28 +562,17 @@ def get_map_json(request, **kwargs):
 
     return JsonResponse(data_result)
 
-
-class ArrayMax(Func):
-    function = "GREATEST"
-    template = "%(function)s(%(expressions)s)"
-
-
-class ArrayMin(Func):
-    function = "LEAST"
-    template = "%(function)s(%(expressions)s)"
-
-
 def team82(request, **kwargs):
     data = {}
     locs = []
     measurements = Measurement.objects.all()
     locations = Location.objects.all()
     try:
-        start = datetime.fromtimestamp(float(request.GET.get("from", None)) / 1000000)
+        start = datetime.fromtimestamp(float(request.GET.get("from", None)) / 1000)
     except:
         start = None
     try:
-        end = datetime.fromtimestamp(float(request.GET.get("to", None)) / 1000000)
+        end = datetime.fromtimestamp(float(request.GET.get("to", None)) / 1000)
     except:
         end = None
     if start == None and end == None:
@@ -620,21 +609,22 @@ def team82(request, **kwargs):
                 if stationData.count() <= 0:
                     continue
 
-                stationData = stationData.annotate(
-                    max__value=ArrayMax("values"), min__value=ArrayMin("values")
-                )
+                max_record = stationData.order_by("-max_value").first()
+                min_record = stationData.order_by("min_value").first()
 
-                max_record = stationData.aggregate(Max("max_value"))["max_value__max"]
-                min_record = stationData.aggregate(Min("min_value"))["min_value__min"]
-                avgVal = stationData.aggregate(Avg("avg_value"))["avg_value__avg"]
-
-                """if max_record:
+                if max_record:
                     max_value_index = max_record.values.index(max_record.max_value)
-                    max_time = max_record.time + max_record.times[max_value_index]
+                    max_time = max_record.time + (
+                        max_record.times[max_value_index] * 1000000
+                    )
 
                 if min_record:
                     min_value_index = min_record.values.index(min_record.min_value)
-                    min_time = min_record.time + min_record.times[min_value_index]"""
+                    min_time = min_record.time + (
+                        min_record.times[min_value_index] * 1000000
+                    )
+
+                avgVal = stationData.aggregate(Avg("avg_value"))["avg_value__avg"]
 
                 meass.append(
                     {
